@@ -16,12 +16,11 @@ function IndexPopup() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<Set<string>>(new Set())
-
-  // Check if we're on a Sora page
-  const isSoraPage = window.location.hostname === 'sora.chatgpt.com'
+  const [isSoraPage, setIsSoraPage] = useState<boolean>(false)
+  const [activeTabId, setActiveTabId] = useState<number | null>(null)
 
   const extractMedia = async () => {
-    if (!isSoraPage) {
+    if (!isSoraPage || activeTabId == null) {
       setError("Please navigate to a Sora video page first")
       return
     }
@@ -30,23 +29,14 @@ function IndexPopup() {
     setError(null)
 
     try {
-      // Get current active tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      
-      if (!tab.id) {
-        throw new Error("No active tab found")
-      }
-
-      // Send message to content script
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractMedia' })
-      
-      if (response.success) {
+      const response = await chrome.tabs.sendMessage(activeTabId, { action: 'extractMedia' })
+      if (response?.success) {
         setExtractedMedia(response.data)
       } else {
-        throw new Error(response.error || "Failed to extract media")
+        throw new Error(response?.error || "Failed to extract media")
       }
-    } catch (err) {
-      setError(err.message || "Failed to extract media from page")
+    } catch (err: any) {
+      setError(err?.message || "Failed to extract media from page")
     } finally {
       setLoading(false)
     }
@@ -56,14 +46,7 @@ function IndexPopup() {
     setDownloading(prev => new Set(prev).add(url))
     
     try {
-      // Create download link
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      link.target = '_blank'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      await chrome.downloads.download({ url, filename })
     } catch (err) {
       console.error('Download failed:', err)
     } finally {
@@ -86,9 +69,25 @@ function IndexPopup() {
   }
 
   useEffect(() => {
-    if (isSoraPage) {
-      extractMedia()
+    const init = async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        const url = tab?.url || ""
+        const isSora = url.startsWith('https://sora.chatgpt.com/')
+        setIsSoraPage(isSora)
+        setActiveTabId(tab?.id ?? null)
+        if (isSora && tab?.id) {
+          // auto extract on open
+          const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractMedia' })
+          if (response?.success) {
+            setExtractedMedia(response.data)
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
     }
+    init()
   }, [])
 
   if (!isSoraPage) {
@@ -145,7 +144,7 @@ function IndexPopup() {
       }}>
         <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           🎬 Sora Video Downloader
-        </h2>
+      </h2>
         <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
           Extract and download videos & thumbnails
         </p>
@@ -250,21 +249,37 @@ function IndexPopup() {
                         }}>
                           {video.url}
                         </div>
-                        <button
-                          onClick={() => downloadFile(video.url, video.filename)}
-                          disabled={downloading.has(video.url)}
-                          style={{
-                            padding: '4px 8px',
-                            background: downloading.has(video.url) ? '#ccc' : '#007bff',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            cursor: downloading.has(video.url) ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          {downloading.has(video.url) ? '⏳' : '⬇️'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(video.url)}
+                            style={{
+                              padding: '4px 8px',
+                              background: '#6c757d',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Copy
+                          </button>
+                          <button
+                            onClick={() => downloadFile(video.url, video.filename)}
+                            disabled={downloading.has(video.url)}
+                            style={{
+                              padding: '4px 8px',
+                              background: downloading.has(video.url) ? '#ccc' : '#007bff',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: downloading.has(video.url) ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {downloading.has(video.url) ? '⏳' : '⬇️'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -312,21 +327,37 @@ function IndexPopup() {
                         }}>
                           {thumbnail.url}
                         </div>
-                        <button
-                          onClick={() => downloadFile(thumbnail.url, thumbnail.filename)}
-                          disabled={downloading.has(thumbnail.url)}
-                          style={{
-                            padding: '4px 8px',
-                            background: downloading.has(thumbnail.url) ? '#ccc' : '#28a745',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            cursor: downloading.has(thumbnail.url) ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          {downloading.has(thumbnail.url) ? '⏳' : '⬇️'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(thumbnail.url)}
+                            style={{
+                              padding: '4px 8px',
+                              background: '#6c757d',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Copy
+                          </button>
+                          <button
+                            onClick={() => downloadFile(thumbnail.url, thumbnail.filename)}
+                            disabled={downloading.has(thumbnail.url)}
+                            style={{
+                              padding: '4px 8px',
+                              background: downloading.has(thumbnail.url) ? '#ccc' : '#28a745',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: downloading.has(thumbnail.url) ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {downloading.has(thumbnail.url) ? '⏳' : '⬇️'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
