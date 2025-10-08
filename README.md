@@ -1,33 +1,76 @@
-This is a [Plasmo extension](https://docs.plasmo.com/) project bootstrapped with [`plasmo init`](https://www.npmjs.com/package/plasmo).
+# 🎬 Sora Video Downloader
 
-## Getting Started
+A Chrome extension built with Plasmo that allows you to easily download videos and thumbnails from Sora video pages.
 
-First, run the development server:
+## Features
+
+- 🔍 **Automatic Media Extraction**: Automatically scans Sora video pages for videos and thumbnails
+- 📥 **One-Click Download**: Download individual files or all media at once
+- 🎥 **Video Support**: Supports MP4, WebM, MOV, AVI formats
+- 🖼️ **Thumbnail Support**: Supports JPG, JPEG, PNG, WebP formats
+- 🎨 **Modern UI**: Clean and intuitive interface
+- ⚡ **Fast & Reliable**: Efficient extraction using multiple methods
+
+## Installation
+
+1. Clone this repository
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+3. Build the extension:
+   ```bash
+   pnpm build
+   ```
+4. Load the extension in Chrome:
+   - Open Chrome and go to `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked" and select the `build/chrome-mv3-prod` folder
+
+## Usage
+
+1. Navigate to any Sora video page (e.g., `https://sora.chatgpt.com/p/s_68e37ae44a548191a2da126fe20c19d9`)
+2. Click the extension icon in your browser toolbar
+3. The extension will automatically extract media from the page
+4. Click individual download buttons or use "Download All" to save everything
+
+## How It Works
+
+The extension uses multiple extraction methods to find media:
+
+- **DOM Analysis**: Scans for `<video>` and `<img>` elements
+- **Script Parsing**: Extracts URLs from JavaScript variables and JSON data
+- **Content Scanning**: Searches page content for direct media URLs
+- **Smart Filtering**: Identifies thumbnails vs regular images using keywords
+
+## Development
 
 ```bash
+# Start development server
 pnpm dev
-# or
-npm run dev
-```
 
-Open your browser and load the appropriate development build. For example, if you are developing for the chrome browser, using manifest v3, use: `build/chrome-mv3-dev`.
-
-You can start editing the popup by modifying `popup.tsx`. It should auto-update as you make changes. To add an options page, simply add a `options.tsx` file to the root of the project, with a react component default exported. Likewise to add a content page, add a `content.ts` file to the root of the project, importing some module and do some logic, then reload the extension on your browser.
-
-For further guidance, [visit our Documentation](https://docs.plasmo.com/)
-
-## Making production build
-
-Run the following:
-
-```bash
+# Build for production
 pnpm build
-# or
-npm run build
+
+# Package for distribution
+pnpm package
 ```
 
-This should create a production bundle for your extension, ready to be zipped and published to the stores.
+## Technical Details
 
-## Submit to the webstores
+- Built with [Plasmo](https://www.plasmo.com/) framework
+- Uses TypeScript for type safety
+- React-based popup interface
+- Content script for page analysis
+- Chrome Extension Manifest V3
 
-The easiest way to deploy your Plasmo extension is to use the built-in [bpp](https://bpp.browser.market) GitHub action. Prior to using this action however, make sure to build your extension and upload the first version to the store to establish the basic credentials. Then, simply follow [this setup instruction](https://docs.plasmo.com/framework/workflows/submit) and you should be on your way for automated submission!
+## Permissions
+
+- `activeTab`: Access to the current tab
+- `downloads`: Download files to user's device
+- `tabs`: Query tab information
+- `host_permissions`: Access to Sora and other websites
+
+## License
+
+MIT License

@@ -1,24 +1,350 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
+
+interface MediaItem {
+  url: string
+  type: 'video' | 'thumbnail'
+  filename: string
+}
+
+interface ExtractedMedia {
+  videos: MediaItem[]
+  thumbnails: MediaItem[]
+}
 
 function IndexPopup() {
-  const [data, setData] = useState("")
+  const [extractedMedia, setExtractedMedia] = useState<ExtractedMedia>({ videos: [], thumbnails: [] })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<Set<string>>(new Set())
+
+  // Check if we're on a Sora page
+  const isSoraPage = window.location.hostname === 'sora.chatgpt.com'
+
+  const extractMedia = async () => {
+    if (!isSoraPage) {
+      setError("Please navigate to a Sora video page first")
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Get current active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      
+      if (!tab.id) {
+        throw new Error("No active tab found")
+      }
+
+      // Send message to content script
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractMedia' })
+      
+      if (response.success) {
+        setExtractedMedia(response.data)
+      } else {
+        throw new Error(response.error || "Failed to extract media")
+      }
+    } catch (err) {
+      setError(err.message || "Failed to extract media from page")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const downloadFile = async (url: string, filename: string) => {
+    setDownloading(prev => new Set(prev).add(url))
+    
+    try {
+      // Create download link
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (err) {
+      console.error('Download failed:', err)
+    } finally {
+      setDownloading(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(url)
+        return newSet
+      })
+    }
+  }
+
+  const downloadAll = async () => {
+    const allItems = [...extractedMedia.videos, ...extractedMedia.thumbnails]
+    
+    for (const item of allItems) {
+      await downloadFile(item.url, item.filename)
+      // Small delay between downloads
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  }
+
+  useEffect(() => {
+    if (isSoraPage) {
+      extractMedia()
+    }
+  }, [])
+
+  if (!isSoraPage) {
+    return (
+      <div style={{ 
+        width: 400, 
+        padding: 20, 
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        minHeight: 200
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2 style={{ margin: '0 0 16px 0', fontSize: '20px' }}>🎬 Sora Video Downloader</h2>
+          <p style={{ margin: '0 0 20px 0', opacity: 0.9 }}>
+            Navigate to a Sora video page to start downloading videos and thumbnails
+          </p>
+          <a 
+            href="https://sora.chatgpt.com" 
+            target="_blank"
+            style={{
+              display: 'inline-block',
+              padding: '10px 20px',
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              textDecoration: 'none',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.3)',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
+            onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+          >
+            Go to Sora
+          </a>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div
-      style={{
-        padding: 16
+    <div style={{ 
+      width: 450, 
+      maxHeight: 600, 
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      background: 'white',
+      border: '1px solid #e1e5e9'
+    }}>
+      {/* Header */}
+      <div style={{ 
+        padding: '16px 20px', 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white'
       }}>
-      <h2>
-        Welcome to your{" "}
-        <a href="https://www.plasmo.com" target="_blank">
-          Plasmo
-        </a>{" "}
-        Extension!
-      </h2>
-      <input onChange={(e) => setData(e.target.value)} value={data} />
-      <a href="https://docs.plasmo.com" target="_blank">
-        View Docs
-      </a>
+        <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          🎬 Sora Video Downloader
+        </h2>
+        <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
+          Extract and download videos & thumbnails
+        </p>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: '20px' }}>
+        {error && (
+          <div style={{ 
+            padding: '12px', 
+            background: '#fee', 
+            color: '#c33', 
+            borderRadius: '6px', 
+            marginBottom: '16px',
+            fontSize: '14px'
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Extract Button */}
+        <button
+          onClick={extractMedia}
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '12px',
+            background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            marginBottom: '20px',
+            transition: 'all 0.3s ease'
+          }}
+        >
+          {loading ? '🔄 Extracting...' : '🔍 Extract Media'}
+        </button>
+
+        {/* Results */}
+        {extractedMedia.videos.length > 0 || extractedMedia.thumbnails.length > 0 ? (
+          <>
+            {/* Download All Button */}
+            <button
+              onClick={downloadAll}
+              disabled={downloading.size > 0}
+              style={{
+                width: '100%',
+                padding: '10px',
+                background: downloading.size > 0 ? '#ccc' : '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: downloading.size > 0 ? 'not-allowed' : 'pointer',
+                marginBottom: '16px'
+              }}
+            >
+              {downloading.size > 0 ? '📥 Downloading...' : '📥 Download All'}
+            </button>
+
+            {/* Videos Section */}
+            {extractedMedia.videos.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h3 style={{ 
+                  margin: '0 0 12px 0', 
+                  fontSize: '16px', 
+                  color: '#333',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  🎥 Videos ({extractedMedia.videos.length})
+                </h3>
+                <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                  {extractedMedia.videos.map((video, index) => (
+                    <div key={index} style={{ 
+                      padding: '8px 12px', 
+                      background: '#f8f9fa', 
+                      borderRadius: '6px', 
+                      marginBottom: '8px',
+                      border: '1px solid #e9ecef'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        {video.filename}
+                      </div>
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center' 
+                      }}>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: '#888', 
+                          maxWidth: '250px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {video.url}
+                        </div>
+                        <button
+                          onClick={() => downloadFile(video.url, video.filename)}
+                          disabled={downloading.has(video.url)}
+                          style={{
+                            padding: '4px 8px',
+                            background: downloading.has(video.url) ? '#ccc' : '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            cursor: downloading.has(video.url) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {downloading.has(video.url) ? '⏳' : '⬇️'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnails Section */}
+            {extractedMedia.thumbnails.length > 0 && (
+              <div>
+                <h3 style={{ 
+                  margin: '0 0 12px 0', 
+                  fontSize: '16px', 
+                  color: '#333',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  🖼️ Thumbnails ({extractedMedia.thumbnails.length})
+                </h3>
+                <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                  {extractedMedia.thumbnails.map((thumbnail, index) => (
+                    <div key={index} style={{ 
+                      padding: '8px 12px', 
+                      background: '#f8f9fa', 
+                      borderRadius: '6px', 
+                      marginBottom: '8px',
+                      border: '1px solid #e9ecef'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                        {thumbnail.filename}
+                      </div>
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center' 
+                      }}>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: '#888', 
+                          maxWidth: '250px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {thumbnail.url}
+                        </div>
+                        <button
+                          onClick={() => downloadFile(thumbnail.url, thumbnail.filename)}
+                          disabled={downloading.has(thumbnail.url)}
+                          style={{
+                            padding: '4px 8px',
+                            background: downloading.has(thumbnail.url) ? '#ccc' : '#28a745',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            cursor: downloading.has(thumbnail.url) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {downloading.has(thumbnail.url) ? '⏳' : '⬇️'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : !loading && (
+          <div style={{ 
+            textAlign: 'center', 
+            color: '#666', 
+            fontSize: '14px',
+            padding: '20px 0'
+          }}>
+            No media found. Click "Extract Media" to scan the page.
+          </div>
+        )}
+      </div>
     </div>
   )
 }

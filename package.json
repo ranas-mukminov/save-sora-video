@@ -25,7 +25,13 @@
   },
   "manifest": {
     "host_permissions": [
+      "https://sora.chatgpt.com/*",
       "https://*/*"
+    ],
+    "permissions": [
+      "activeTab",
+      "downloads",
+      "tabs"
     ]
   }
 }
