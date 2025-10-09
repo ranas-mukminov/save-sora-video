@@ -128,13 +128,30 @@ function IndexPopup() {
     )
   }
 
+  // Calculate dynamic height based on content
+  const calculateHeight = () => {
+    const baseHeight = 180 // Header + basic padding
+    const buttonHeight = 50 // Extract button
+    const downloadAllHeight = extractedMedia.videos.length > 0 || extractedMedia.thumbnails.length > 0 ? 45 : 0
+    const errorHeight = error ? 60 : 0
+    const videoSectionHeight = extractedMedia.videos.length > 0 ? 40 + extractedMedia.videos.length * 45 : 0
+    const thumbnailSectionHeight = extractedMedia.thumbnails.length > 0 ? 40 + extractedMedia.thumbnails.length * 45 : 0
+    const padding = 40 // Top and bottom padding
+
+    const totalHeight = baseHeight + buttonHeight + downloadAllHeight + errorHeight +
+                       videoSectionHeight + thumbnailSectionHeight + padding
+    return Math.min(Math.max(totalHeight, 300), 800) // Min 300px, max 800px
+  }
+
   return (
-    <div style={{ 
-      width: 450, 
-      maxHeight: 600, 
+    <div style={{
+      width: 480,
+      height: calculateHeight(),
       fontFamily: 'system-ui, -apple-system, sans-serif',
       background: 'white',
-      border: '1px solid #e1e5e9'
+      border: '1px solid #e1e5e9',
+      display: 'flex',
+      flexDirection: 'column'
     }}>
       {/* Header */}
       <div style={{ 
@@ -151,7 +168,12 @@ function IndexPopup() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '20px' }}>
+      <div style={{
+        padding: '20px',
+        flex: 1,
+        overflowY: 'auto',
+        minHeight: 0
+      }}>
         {error && (
           <div style={{ 
             padding: '12px', 
@@ -222,7 +244,7 @@ function IndexPopup() {
                 }}>
                   🎥 Videos ({extractedMedia.videos.length})
                 </h3>
-                <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                <div style={{ maxHeight: 'none', overflowY: 'visible' }}>
                   {extractedMedia.videos.map((video, index) => (
                     <div key={index} style={{ 
                       padding: '8px 12px', 
@@ -300,7 +322,7 @@ function IndexPopup() {
                 }}>
                   🖼️ Thumbnails ({extractedMedia.thumbnails.length})
                 </h3>
-                <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                <div style={{ maxHeight: 'none', overflowY: 'visible' }}>
                   {extractedMedia.thumbnails.map((thumbnail, index) => (
                     <div key={index} style={{ 
                       padding: '8px 12px', 
