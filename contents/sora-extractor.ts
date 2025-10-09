@@ -39,7 +39,7 @@ function extractUrlsFromJson(obj: any): { videos: string[], thumbnails: string[]
   return { videos, thumbnails }
 }
 
-// Validate URL format
+// Validate URL format and prioritize signed URLs
 function isValidUrl(url: string): boolean {
   try {
     const urlObj = new URL(url)
@@ -70,7 +70,46 @@ function isValidUrl(url: string): boolean {
       pathname.endsWith(ext) || pathname.includes(ext + '?')
     )
     
-    return hasValidExt
+    if (!hasValidExt) {
+      return false
+    }
+    
+    // For OpenAI/Sora videos, prioritize URLs with SAS signatures
+    if (urlObj.hostname.includes('openai.com') || urlObj.hostname.includes('videos.openai.com')) {
+      const searchParams = urlObj.searchParams
+      // Check for Azure SAS signature parameters
+      const hasSignature = searchParams.has('sig') && 
+                          searchParams.has('st') && 
+                          searchParams.has('se') &&
+                          searchParams.has('sv')
+      
+      if (hasSignature) {
+        // This is a signed URL with access permissions - prioritize it
+        return true
+      } else {
+        // This is likely an unsigned URL without access permissions - skip it
+        return false
+      }
+    }
+    
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Check if URL has higher priority (signed URLs, etc.)
+function hasHigherPriority(url: string): boolean {
+  try {
+    const urlObj = new URL(url)
+    
+    // For OpenAI/Sora videos, signed URLs have higher priority
+    if (urlObj.hostname.includes('openai.com') || urlObj.hostname.includes('videos.openai.com')) {
+      const searchParams = urlObj.searchParams
+      return searchParams.has('sig') && searchParams.has('st') && searchParams.has('se')
+    }
+    
+    return false
   } catch {
     return false
   }
@@ -273,13 +312,44 @@ function extractMediaFromPage(): ExtractedMedia {
     }
   })
 
-  // Remove duplicates while preserving order
-  const uniqueVideos = videos.filter((video, index, self) => 
-    index === self.findIndex(v => v.url === video.url)
-  )
-  const uniqueThumbnails = thumbnails.filter((thumb, index, self) => 
-    index === self.findIndex(t => t.url === thumb.url)
-  )
+  // Remove duplicates while prioritizing signed URLs
+  const uniqueVideos = videos.reduce((acc: MediaItem[], current) => {
+    // Find existing item with same base path (without query params)
+    const currentBasePath = current.url.split('?')[0]
+    const existingIndex = acc.findIndex(item => item.url.split('?')[0] === currentBasePath)
+    
+    if (existingIndex === -1) {
+      // No existing item, add current
+      acc.push(current)
+    } else {
+      // Compare priority - keep the one with higher priority (signed URL)
+      const existing = acc[existingIndex]
+      if (hasHigherPriority(current.url) && !hasHigherPriority(existing.url)) {
+        acc[existingIndex] = current
+      }
+    }
+    
+    return acc
+  }, [])
+  
+  const uniqueThumbnails = thumbnails.reduce((acc: MediaItem[], current) => {
+    // Find existing item with same base path (without query params)
+    const currentBasePath = current.url.split('?')[0]
+    const existingIndex = acc.findIndex(item => item.url.split('?')[0] === currentBasePath)
+    
+    if (existingIndex === -1) {
+      // No existing item, add current
+      acc.push(current)
+    } else {
+      // Compare priority - keep the one with higher priority (signed URL)
+      const existing = acc[existingIndex]
+      if (hasHigherPriority(current.url) && !hasHigherPriority(existing.url)) {
+        acc[existingIndex] = current
+      }
+    }
+    
+    return acc
+  }, [])
 
   return {
     videos: uniqueVideos,
