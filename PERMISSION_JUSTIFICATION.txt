@@ -1,0 +1,56 @@
+Chrome Extension Permission Justification
+==========================================
+
+Extension Name: Sora Video Downloader
+Version: 0.0.2
+
+Permission Justifications
+=========================
+
+1. activeTab Permission
+-----------------------
+The `activeTab` permission is required to allow the extension to access and scan the content of the currently active Sora video page or video list page when the user clicks the extension icon. This is essential for extracting video and thumbnail URLs from the page's DOM, enabling the core functionality of media extraction. The extension only accesses the tab when the user explicitly activates it by clicking the extension icon, ensuring user privacy and control.
+
+2. downloads Permission
+-----------------------
+The `downloads` permission is necessary to enable the core functionality of the extension: downloading extracted Sora videos and thumbnails to the user's local device. Without this permission, the extension cannot save the media files that the user wishes to download. This permission is only used when the user explicitly clicks download buttons within the extension popup, ensuring all downloads are user-initiated.
+
+3. tabs Permission
+------------------
+The `tabs` permission is used to query information about the current tab, specifically its URL. This allows the extension to verify if the user is on a valid Sora video or video list page (e.g., `https://sora.chatgpt.com/`) before attempting to extract media, ensuring the extension only activates on relevant pages and provides a consistent user experience. This permission is essential for the extension's smart activation feature.
+
+4. Host Permission - https://sora.chatgpt.com/*
+------------------------------------------------
+Host permissions for `https://sora.chatgpt.com/*` are essential for the extension to inject content scripts and perform advanced media extraction on Sora video and video list pages. This persistent access is required to reliably scan the page's DOM, parse scripts, and identify all available video and thumbnail URLs, including those that might be dynamically loaded or require specific origin access for extraction. This permission is critical for the extension to function as intended, providing comprehensive video and thumbnail downloading capabilities for Sora content.
+
+5. Host Permission - https://*/*
+------------------------------
+The broad host permission `https://*/*` is included to ensure compatibility with various Sora video hosting scenarios and potential future changes in OpenAI's infrastructure. This permission allows the extension to work with any HTTPS website that might host Sora videos, ensuring robust functionality across different deployment scenarios. The extension only performs media extraction operations and does not collect or transmit any user data.
+
+Technical Implementation Details
+===============================
+
+The extension uses these permissions in the following ways:
+
+1. Content Script Injection: The extension injects a content script into Sora pages to scan for media elements
+2. DOM Analysis: Scans for <video> and <img> elements to identify media files
+3. Script Parsing: Extracts URLs from JavaScript variables and JSON data embedded in the page
+4. URL Validation: Validates and prioritizes signed URLs to ensure download reliability
+5. User-Initiated Downloads: All downloads are triggered by explicit user actions within the extension popup
+
+Privacy and Security
+====================
+
+- The extension does not collect, store, or transmit any personal user data
+- All media extraction is performed locally within the user's browser
+- Downloads are initiated only when the user explicitly clicks download buttons
+- The extension only accesses content on Sora video pages when activated by the user
+- No data is sent to external servers or third parties
+
+Compliance Notes
+================
+
+- All permissions are used solely for the stated functionality of downloading Sora videos and thumbnails
+- The extension complies with Chrome Web Store policies regarding media downloading
+- No circumvention of access controls or terms of service is performed
+- The extension enhances user experience by providing convenient access to media that users have legitimate access to view
