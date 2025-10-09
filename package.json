@@ -1,8 +1,8 @@
 {
   "name": "save-sora-video",
   "displayName": "Save sora video",
-  "version": "0.0.1",
-  "description": "A extension for save sora video easily",
+  "version": "0.0.2",
+  "description": "Easily download Sora videos and thumbnails - One-click extraction and save for ChatGPT Sora generated video content",
   "author": "milo <zh.milo@gmail.com>",
   "scripts": {
     "dev": "plasmo dev",

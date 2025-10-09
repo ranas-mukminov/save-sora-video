@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screenshot Canvas Display</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .canvas-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 1200px) {
+            .canvas-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .canvas-container {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .canvas-container:hover {
+            transform: translateY(-5px);
+        }
+
+        .canvas-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+            text-align: center;
+        }
+
+        .canvas-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f8fafc;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #48bb78, #38a169);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .color-picker {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 10px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .color-picker label {
+            font-size: 0.9rem;
+            color: #4a5568;
+        }
+
+        .color-picker input[type="color"] {
+            width: 40px;
+            height: 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .info {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            color: #0c4a6e;
+        }
+
+        .info h3 {
+            margin-bottom: 10px;
+            color: #0369a1;
+        }
+
+        .info ul {
+            margin-left: 20px;
+        }
+
+        .info li {
+            margin-bottom: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>📸 Screenshot Canvas Display</h1>
+            <p>Display and save screenshots with custom dimensions and background colors</p>
+        </header>
+
+        <div class="canvas-grid">
+            <div class="canvas-container">
+                <h2 class="canvas-title">1280 × 800 Display</h2>
+                <div class="canvas-wrapper">
+                    <canvas id="canvas1280" width="1280" height="800"></canvas>
+                </div>
+                <div class="controls">
+                    <div class="color-picker">
+                        <label for="bgColor1280">Background:</label>
+                        <input type="color" id="bgColor1280" value="#ffe0ec">
+                    </div>
+                    <button class="btn" onclick="updateCanvas(1280)">Update Canvas</button>
+                    <button class="btn btn-secondary" onclick="saveCanvas(1280)">Save as PNG</button>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <h2 class="canvas-title">640 × 400 Display</h2>
+                <div class="canvas-wrapper">
+                    <canvas id="canvas640" width="640" height="400"></canvas>
+                </div>
+                <div class="controls">
+                    <div class="color-picker">
+                        <label for="bgColor640">Background:</label>
+                        <input type="color" id="bgColor640" value="#ffe0ec">
+                    </div>
+                    <button class="btn" onclick="updateCanvas(640)">Update Canvas</button>
+                    <button class="btn btn-secondary" onclick="saveCanvas(640)">Save as PNG</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="info">
+            <h3>ℹ️ Instructions</h3>
+            <ul>
+                <li>Select a screenshot using the dropdown below</li>
+                <li>Choose background colors for each canvas</li>
+                <li>Click "Update Canvas" to refresh the display</li>
+                <li>Click "Save as PNG" to download 24-bit PNG images</li>
+                <li><strong>Important:</strong> To avoid CORS issues, run a local server first (see below)</li>
+            </ul>
+            <h3>🚀 Local Server Setup</h3>
+            <p>To enable PNG export functionality, run one of these commands in your terminal:</p>
+            <ul>
+                <li><strong>Python 3:</strong> <code>python -m http.server 8000</code></li>
+                <li><strong>Python 2:</strong> <code>python -m SimpleHTTPServer 8000</code></li>
+                <li><strong>Node.js:</strong> <code>npx serve .</code></li>
+                <li><strong>PHP:</strong> <code>php -S localhost:8000</code></li>
+            </ul>
+            <p>Then open: <code>http://localhost:8000/screenshot-canvas.html</code></p>
+        </div>
+
+        <div class="canvas-container">
+            <h2 class="canvas-title">Screenshot Selection</h2>
+            <div class="controls">
+                <div class="color-picker">
+                    <label for="imageSelect">Choose Screenshot:</label>
+                    <select id="imageSelect" onchange="loadSelectedImage()">
+                        <option value="">Select a screenshot...</option>
+                        <option value="screenshots/1.png">Screenshot 1</option>
+                        <option value="screenshots/2.png">Screenshot 2</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="loadSelectedImage()">Load Image</button>
+            </div>
+            <div id="loadingMessage" class="loading" style="display: none;">Loading image...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+
+        function loadSelectedImage() {
+            const select = document.getElementById('imageSelect');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const imagePath = select.value;
+
+            if (!imagePath) {
+                return;
+            }
+
+            loadingMessage.style.display = 'block';
+
+            const img = new Image();
+            // Remove crossOrigin for local file access
+            img.onload = function() {
+                currentImage = img;
+                updateCanvas(1280);
+                updateCanvas(640);
+                loadingMessage.style.display = 'none';
+            };
+            img.onerror = function() {
+                loadingMessage.textContent = 'Error loading image. Please run local server or check file path.';
+                setTimeout(() => {
+                    loadingMessage.style.display = 'none';
+                    loadingMessage.textContent = 'Loading image...';
+                }, 3000);
+            };
+            img.src = imagePath;
+        }
+
+        function updateCanvas(size) {
+            if (!currentImage) {
+                alert('Please select and load a screenshot first!');
+                return;
+            }
+
+            const canvas = document.getElementById(`canvas${size}`);
+            const ctx = canvas.getContext('2d');
+            const bgColor = document.getElementById(`bgColor${size}`).value;
+
+            // Clear canvas and set background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, size, size === 1280 ? 800 : 400);
+
+            // Calculate scaling to fit image in canvas
+            const canvasWidth = size;
+            const canvasHeight = size === 1280 ? 800 : 400;
+
+            const imgAspect = currentImage.width / currentImage.height;
+            const canvasAspect = canvasWidth / canvasHeight;
+
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (imgAspect > canvasAspect) {
+                // Image is wider than canvas aspect ratio
+                drawWidth = canvasWidth * 0.9;
+                drawHeight = drawWidth / imgAspect;
+                offsetX = (canvasWidth - drawWidth) / 2;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            } else {
+                // Image is taller than canvas aspect ratio
+                drawHeight = canvasHeight * 0.9;
+                drawWidth = drawHeight * imgAspect;
+                offsetX = (canvasWidth - drawWidth) / 2;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            }
+
+            // Add subtle shadow effect
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+            ctx.shadowBlur = 20;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 10;
+
+            // Draw the image
+            ctx.drawImage(currentImage, offsetX, offsetY, drawWidth, drawHeight);
+
+            // Reset shadow
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+        }
+
+        function saveCanvas(size) {
+            const canvas = document.getElementById(`canvas${size}`);
+
+            try {
+                // Try to export directly first
+                canvas.toBlob(function(blob) {
+                    if (blob) {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `screenshot-${size}x${size === 1280 ? 800 : 400}.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        // Show success message
+                        const originalText = event.target.textContent;
+                        event.target.textContent = 'Saved!';
+                        event.target.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                        setTimeout(() => {
+                            event.target.textContent = originalText;
+                            event.target.style.background = '';
+                        }, 2000);
+                    } else {
+                        throw new Error('Canvas export failed');
+                    }
+                }, 'image/png');
+            } catch (error) {
+                // Fallback: show server instructions
+                alert('Canvas export failed due to CORS restrictions.\n\nPlease run a local server:\n\nMethod 1: Using Python\npython -m http.server 8000\n\nMethod 2: Using Node.js\nnpx serve .\n\nThen open http://localhost:8000/screenshot-canvas.html');
+            }
+        }
+
+        // Initialize with first image on page load
+        window.addEventListener('load', function() {
+            // Auto-select the first image
+            document.getElementById('imageSelect').value = 'screenshots/1.png';
+            loadSelectedImage();
+        });
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case '1':
+                        e.preventDefault();
+                        saveCanvas(1280);
+                        break;
+                    case '2':
+                        e.preventDefault();
+                        saveCanvas(640);
+                        break;
+                    case 'u':
+                        e.preventDefault();
+                        updateCanvas(1280);
+                        updateCanvas(640);
+                        break;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

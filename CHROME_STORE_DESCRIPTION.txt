@@ -1,0 +1,125 @@
+Chrome Extension Store Description
+=====================================
+
+中文版本
+--------
+
+简短描述:
+轻松下载Sora视频和缩略图 - 一键提取并保存ChatGPT Sora生成的视频内容
+
+详细描述:
+🎬 Sora Video Downloader - 专为ChatGPT Sora设计的视频下载工具
+
+主要功能:
+• 🔍 智能媒体提取 - 自动扫描Sora视频页面，识别所有视频和缩略图
+• 📥 一键下载 - 支持单个文件下载或批量下载所有媒体文件
+• 🎥 视频格式支持 - 支持MP4、WebM、MOV、AVI等视频格式
+• 🖼️ 缩略图支持 - 支持JPG、JPEG、PNG、WebP等图片格式
+• ⚡ 高效可靠 - 使用多种提取方法，确保找到所有可用媒体
+• 🎨 现代界面 - 简洁直观的用户界面，操作简单
+
+使用方法:
+1. 访问任何Sora视频页面或视频列表页面 (https://sora.chatgpt.com/)
+2. 点击扩展图标
+3. 扩展会自动提取页面中的媒体文件
+4. 点击下载按钮保存到本地
+
+技术特点:
+• 使用DOM分析、脚本解析和内容扫描等多种方法
+• 智能过滤，区分缩略图和普通图片
+• 支持签名URL，确保下载链接有效
+• 自动去重，优先选择高质量链接
+
+权限说明:
+• activeTab - 访问当前标签页
+• downloads - 下载文件到设备
+• tabs - 查询标签页信息
+• host_permissions - 访问Sora和其他网站
+
+让保存Sora视频变得简单快捷！立即安装，开始收藏你喜欢的AI生成视频。
+
+关键词:
+sora, video downloader, chatgpt, ai video, video extractor, media download, sora downloader, openai, video saver
+
+类别:
+Productivity (生产力工具)
+
+=====================================
+
+English Version
+---------------
+
+Short Description:
+Easily download Sora videos and thumbnails - One-click extraction and save for ChatGPT Sora generated video content
+
+Detailed Description:
+🎬 Sora Video Downloader - The ultimate tool for downloading ChatGPT Sora videos
+
+Key Features:
+• 🔍 Smart Media Extraction - Automatically scans Sora video pages to identify all videos and thumbnails
+• 📥 One-Click Download - Download individual files or batch download all media files
+• 🎥 Video Format Support - Supports MP4, WebM, MOV, AVI and other video formats
+• 🖼️ Thumbnail Support - Supports JPG, JPEG, PNG, WebP and other image formats
+• ⚡ Fast & Reliable - Uses multiple extraction methods to ensure all available media is found
+• 🎨 Modern Interface - Clean and intuitive user interface with simple operation
+
+How to Use:
+1. Visit any Sora video page or video list page (https://sora.chatgpt.com/)
+2. Click the extension icon
+3. The extension will automatically extract media files from the page
+4. Click download buttons to save to your local device
+
+Technical Features:
+• Uses DOM analysis, script parsing, and content scanning methods
+• Smart filtering to distinguish thumbnails from regular images
+• Supports signed URLs to ensure download links are valid
+• Automatic deduplication with priority for high-quality links
+
+Permissions:
+• activeTab - Access to current tab
+• downloads - Download files to device
+• tabs - Query tab information
+• host_permissions - Access to Sora and other websites
+
+Make saving Sora videos simple and fast! Install now and start collecting your favorite AI-generated videos.
+
+Keywords:
+sora, video downloader, chatgpt, ai video, video extractor, media download, sora downloader, openai, video saver
+
+Category:
+Productivity
+
+=====================================
+
+Chrome Web Store 提交指南
+========================
+
+1. 开发者控制台: 访问 https://chrome.google.com/webstore/devconsole/
+
+2. 创建新项目: 点击"添加新项目"
+
+3. 上传文件: 上传 build/chrome-mv3-prod.zip 文件
+
+4. 填写信息: 使用上述描述内容填写以下字段:
+   - 扩展名称: Sora Video Downloader
+   - 简短描述: 使用上述简短描述
+   - 详细描述: 使用上述详细描述
+   - 关键词: 使用上述关键词列表
+   - 类别: Productivity
+   - 语言: 选择中文和英文
+
+5. 截图要求: 准备以下截图:
+   - 扩展图标 (128x128px)
+   - 弹出窗口界面截图
+   - 在Sora页面上的使用效果截图
+   - 下载功能演示截图
+
+6. 隐私政策: 需要提供隐私政策链接，说明扩展收集的数据类型
+
+7. 审核: 提交后等待Google审核，通常需要1-3个工作日
+
+注意事项:
+- 确保所有描述内容符合Chrome Web Store政策
+- 避免使用"破解"、"绕过"等敏感词汇
+- 强调扩展的合法性和用户价值
+- 提供清晰的使用说明和权限解释
