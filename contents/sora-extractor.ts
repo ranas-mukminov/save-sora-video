@@ -39,15 +39,66 @@ function extractUrlsFromJson(obj: any): { videos: string[], thumbnails: string[]
   return { videos, thumbnails }
 }
 
-// Convert relative URLs to absolute
-function toAbsoluteUrl(url: string, baseUrl: string): string {
-  if (url.startsWith('http')) {
-    return url
-  }
+// Validate URL format
+function isValidUrl(url: string): boolean {
   try {
-    return new URL(url, baseUrl).href
+    const urlObj = new URL(url)
+    // Check if it's a valid HTTP/HTTPS URL
+    if (!['http:', 'https:'].includes(urlObj.protocol)) {
+      return false
+    }
+    
+    // Additional checks for common invalid patterns
+    const pathname = urlObj.pathname.toLowerCase()
+    
+    // Skip URLs that are likely to be invalid
+    if (pathname.includes('undefined') || 
+        pathname.includes('null') || 
+        pathname.includes('{{') || 
+        pathname.includes('}}') ||
+        pathname.includes('placeholder') ||
+        pathname.includes('example.com') ||
+        pathname.includes('localhost') ||
+        pathname.includes('127.0.0.1')) {
+      return false
+    }
+    
+    // Check for valid file extensions
+    const validVideoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv']
+    const validImageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+    const hasValidExt = [...validVideoExts, ...validImageExts].some(ext => 
+      pathname.endsWith(ext) || pathname.includes(ext + '?')
+    )
+    
+    return hasValidExt
   } catch {
-    return url
+    return false
+  }
+}
+
+// Convert relative URLs to absolute and validate
+function toAbsoluteUrl(url: string, baseUrl: string): string | null {
+  if (!url || typeof url !== 'string') {
+    return null
+  }
+  
+  // Clean up the URL
+  url = url.trim()
+  
+  // Skip data URLs, blob URLs, and other non-http protocols
+  if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:') || url.startsWith('#')) {
+    return null
+  }
+  
+  if (url.startsWith('http')) {
+    return isValidUrl(url) ? url : null
+  }
+  
+  try {
+    const absoluteUrl = new URL(url, baseUrl).href
+    return isValidUrl(absoluteUrl) ? absoluteUrl : null
+  } catch {
+    return null
   }
 }
 
@@ -77,11 +128,13 @@ function extractMediaFromPage(): ExtractedMedia {
     const src = video.getAttribute('src')
     if (src) {
       const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-      videos.push({
-        url: absoluteUrl,
-        type: 'video',
-        filename: generateFilename(absoluteUrl, 'video')
-      })
+      if (absoluteUrl) {
+        videos.push({
+          url: absoluteUrl,
+          type: 'video',
+          filename: generateFilename(absoluteUrl, 'video')
+        })
+      }
     }
 
     const sources = video.querySelectorAll('source')
@@ -89,11 +142,13 @@ function extractMediaFromPage(): ExtractedMedia {
       const src = source.getAttribute('src')
       if (src) {
         const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-        videos.push({
-          url: absoluteUrl,
-          type: 'video',
-          filename: generateFilename(absoluteUrl, 'video')
-        })
+        if (absoluteUrl) {
+          videos.push({
+            url: absoluteUrl,
+            type: 'video',
+            filename: generateFilename(absoluteUrl, 'video')
+          })
+        }
       }
     })
   })
@@ -108,11 +163,13 @@ function extractMediaFromPage(): ExtractedMedia {
       if (['thumb', 'preview', 'video', 'cover', 'poster', 'sora'].some(keyword => 
         srcLower.includes(keyword))) {
         const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-        thumbnails.push({
-          url: absoluteUrl,
-          type: 'thumbnail',
-          filename: generateFilename(absoluteUrl, 'thumbnail')
-        })
+        if (absoluteUrl) {
+          thumbnails.push({
+            url: absoluteUrl,
+            type: 'thumbnail',
+            filename: generateFilename(absoluteUrl, 'thumbnail')
+          })
+        }
       }
     }
   })
@@ -144,37 +201,45 @@ function extractMediaFromPage(): ExtractedMedia {
               const urls = extractUrlsFromJson(jsonObj)
               urls.videos.forEach(url => {
                 const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                videos.push({
-                  url: absoluteUrl,
-                  type: 'video',
-                  filename: generateFilename(absoluteUrl, 'video')
-                })
+                if (absoluteUrl) {
+                  videos.push({
+                    url: absoluteUrl,
+                    type: 'video',
+                    filename: generateFilename(absoluteUrl, 'video')
+                  })
+                }
               })
               urls.thumbnails.forEach(url => {
                 const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                thumbnails.push({
-                  url: absoluteUrl,
-                  type: 'thumbnail',
-                  filename: generateFilename(absoluteUrl, 'thumbnail')
-                })
+                if (absoluteUrl) {
+                  thumbnails.push({
+                    url: absoluteUrl,
+                    type: 'thumbnail',
+                    filename: generateFilename(absoluteUrl, 'thumbnail')
+                  })
+                }
               })
             } else if (matches[1]) {
               // Handle direct URL matches
               const url = matches[1]
               if (/\.(mp4|webm|mov|avi)$/i.test(url)) {
                 const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                videos.push({
-                  url: absoluteUrl,
-                  type: 'video',
-                  filename: generateFilename(absoluteUrl, 'video')
-                })
+                if (absoluteUrl) {
+                  videos.push({
+                    url: absoluteUrl,
+                    type: 'video',
+                    filename: generateFilename(absoluteUrl, 'video')
+                  })
+                }
               } else if (/\.(jpg|jpeg|png|webp)$/i.test(url)) {
                 const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                thumbnails.push({
-                  url: absoluteUrl,
-                  type: 'thumbnail',
-                  filename: generateFilename(absoluteUrl, 'thumbnail')
-                })
+                if (absoluteUrl) {
+                  thumbnails.push({
+                    url: absoluteUrl,
+                    type: 'thumbnail',
+                    filename: generateFilename(absoluteUrl, 'thumbnail')
+                  })
+                }
               }
             }
           } catch (e) {
@@ -191,18 +256,20 @@ function extractMediaFromPage(): ExtractedMedia {
   const directUrls = pageText.match(urlPattern) || []
 
   directUrls.forEach(url => {
-    if (/\.(mp4|webm|mov|avi)$/i.test(url)) {
-      videos.push({
-        url: url,
-        type: 'video',
-        filename: generateFilename(url, 'video')
-      })
-    } else if (/\.(jpg|jpeg|png|webp)$/i.test(url)) {
-      thumbnails.push({
-        url: url,
-        type: 'thumbnail',
-        filename: generateFilename(url, 'thumbnail')
-      })
+    if (isValidUrl(url)) {
+      if (/\.(mp4|webm|mov|avi)$/i.test(url)) {
+        videos.push({
+          url: url,
+          type: 'video',
+          filename: generateFilename(url, 'video')
+        })
+      } else if (/\.(jpg|jpeg|png|webp)$/i.test(url)) {
+        thumbnails.push({
+          url: url,
+          type: 'thumbnail',
+          filename: generateFilename(url, 'thumbnail')
+        })
+      }
     }
   })
 
