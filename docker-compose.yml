@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  screenshot-server:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./screenshot-canvas.html:/usr/share/nginx/html/screenshot-canvas.html:ro
+      - ./screenshots:/usr/share/nginx/html/screenshots:ro
+    restart: unless-stopped

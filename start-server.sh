@@ -1,56 +1,45 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Simple server launcher for screenshot-canvas.html
+set -euo pipefail
 
-echo "🚀 Starting local server for screenshot canvas..."
-echo ""
-echo "Choose a server option:"
-echo "1) Python 3 (recommended)"
-echo "2) Python 2"
-echo "3) Node.js"
-echo "4) PHP"
-echo ""
+SERVICE_NAME="screenshot-server"
 
-read -p "Enter your choice (1-4): " choice
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+else
+  echo "❌ Docker Compose is required to run the screenshot server."
+  echo "Install Docker Desktop or the docker-compose plugin and try again."
+  exit 1
+fi
 
-case $choice in
-    1)
-        if command -v python3 &> /dev/null; then
-            echo "Starting Python 3 server on port 8000..."
-            echo "Open http://localhost:8000/screenshot-canvas.html"
-            python3 -m http.server 8000
-        else
-            echo "Python 3 not found. Please install Python 3."
-        fi
-        ;;
-    2)
-        if command -v python &> /dev/null; then
-            echo "Starting Python 2 server on port 8000..."
-            echo "Open http://localhost:8000/screenshot-canvas.html"
-            python -m SimpleHTTPServer 8000
-        else
-            echo "Python not found. Please install Python."
-        fi
-        ;;
-    3)
-        if command -v npx &> /dev/null; then
-            echo "Starting Node.js server..."
-            echo "Open http://localhost:3000/screenshot-canvas.html"
-            npx serve .
-        else
-            echo "Node.js/npx not found. Please install Node.js."
-        fi
-        ;;
-    4)
-        if command -v php &> /dev/null; then
-            echo "Starting PHP server on port 8000..."
-            echo "Open http://localhost:8000/screenshot-canvas.html"
-            php -S localhost:8000
-        else
-            echo "PHP not found. Please install PHP."
-        fi
-        ;;
-    *)
-        echo "Invalid choice. Please run the script again."
-        ;;
-esac
+echo "🚀 Starting screenshot canvas server via Docker Compose..."
+echo "   - Service: ${SERVICE_NAME}"
+echo "   - URL:     http://localhost:8080/screenshot-canvas.html"
+
+"${COMPOSE_CMD[@]}" up --build --detach "${SERVICE_NAME}"
+
+cleaned_up=false
+
+cleanup() {
+  if [ "$cleaned_up" = true ]; then
+    return
+  fi
+  cleaned_up=true
+  echo
+  echo "🛑 Stopping screenshot canvas server..."
+  "${COMPOSE_CMD[@]}" down --remove-orphans
+}
+
+trap cleanup INT TERM
+
+echo "📜 Streaming container logs. Press Ctrl+C to stop."
+set +e
+"${COMPOSE_CMD[@]}" logs -f --tail=20 "${SERVICE_NAME}"
+EXIT_CODE=$?
+set -e
+
+cleanup
+
+exit "$EXIT_CODE"

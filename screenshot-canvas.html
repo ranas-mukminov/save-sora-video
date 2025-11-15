@@ -196,8 +196,8 @@
                         <label for="bgColor1280">Background:</label>
                         <input type="color" id="bgColor1280" value="#ffe0ec">
                     </div>
-                    <button class="btn" onclick="updateCanvas(1280)">Update Canvas</button>
-                    <button class="btn btn-secondary" onclick="saveCanvas(1280)">Save as PNG</button>
+                    <button class="btn" type="button" onclick="updateCanvas(1280)">Update Canvas</button>
+                    <button class="btn btn-secondary" type="button" onclick="saveCanvas(1280, this)">Save as PNG</button>
                 </div>
             </div>
 
@@ -211,8 +211,8 @@
                         <label for="bgColor640">Background:</label>
                         <input type="color" id="bgColor640" value="#ffe0ec">
                     </div>
-                    <button class="btn" onclick="updateCanvas(640)">Update Canvas</button>
-                    <button class="btn btn-secondary" onclick="saveCanvas(640)">Save as PNG</button>
+                    <button class="btn" type="button" onclick="updateCanvas(640)">Update Canvas</button>
+                    <button class="btn btn-secondary" type="button" onclick="saveCanvas(640, this)">Save as PNG</button>
                 </div>
             </div>
         </div>
@@ -227,14 +227,11 @@
                 <li><strong>Important:</strong> To avoid CORS issues, run a local server first (see below)</li>
             </ul>
             <h3>🚀 Local Server Setup</h3>
-            <p>To enable PNG export functionality, run one of these commands in your terminal:</p>
+            <p>Run the Dockerized server to enable PNG export functionality:</p>
             <ul>
-                <li><strong>Python 3:</strong> <code>python -m http.server 8000</code></li>
-                <li><strong>Python 2:</strong> <code>python -m SimpleHTTPServer 8000</code></li>
-                <li><strong>Node.js:</strong> <code>npx serve .</code></li>
-                <li><strong>PHP:</strong> <code>php -S localhost:8000</code></li>
+                <li><strong>Docker Compose:</strong> <code>./start-server.sh</code> (or <code>docker compose up screenshot-server</code>)</li>
             </ul>
-            <p>Then open: <code>http://localhost:8000/screenshot-canvas.html</code></p>
+            <p>Then open: <code>http://localhost:8080/screenshot-canvas.html</code></p>
         </div>
 
         <div class="canvas-container">
@@ -248,21 +245,42 @@
                         <option value="screenshots/2.png">Screenshot 2</option>
                     </select>
                 </div>
-                <button class="btn" onclick="loadSelectedImage()">Load Image</button>
+                <button class="btn" type="button" onclick="loadSelectedImage()">Load Image</button>
             </div>
             <div id="loadingMessage" class="loading" style="display: none;">Loading image...</div>
         </div>
     </div>
 
     <script>
+        const allowedScreenshots = new Set([
+            'screenshots/1.png',
+            'screenshots/2.png'
+        ]);
         let currentImage = null;
 
         function loadSelectedImage() {
             const select = document.getElementById('imageSelect');
             const loadingMessage = document.getElementById('loadingMessage');
+
+            if (!(select instanceof HTMLSelectElement) || !(loadingMessage instanceof HTMLElement)) {
+                console.error('Required DOM elements were not found.');
+                return;
+            }
+
             const imagePath = select.value;
 
             if (!imagePath) {
+                return;
+            }
+
+            if (!allowedScreenshots.has(imagePath)) {
+                loadingMessage.textContent = 'Invalid image selected.';
+                loadingMessage.style.display = 'block';
+                setTimeout(() => {
+                    loadingMessage.style.display = 'none';
+                    loadingMessage.textContent = 'Loading image...';
+                    select.value = '';
+                }, 3000);
                 return;
             }
 
@@ -293,8 +311,21 @@
             }
 
             const canvas = document.getElementById(`canvas${size}`);
+            const bgColorInput = document.getElementById(`bgColor${size}`);
+
+            if (!(canvas instanceof HTMLCanvasElement) || !(bgColorInput instanceof HTMLInputElement)) {
+                alert('Canvas configuration is missing.');
+                return;
+            }
+
             const ctx = canvas.getContext('2d');
-            const bgColor = document.getElementById(`bgColor${size}`).value;
+
+            if (!ctx) {
+                alert('Unable to access canvas rendering context.');
+                return;
+            }
+
+            const bgColor = bgColorInput.value;
 
             // Clear canvas and set background
             ctx.fillStyle = bgColor;
@@ -339,8 +370,15 @@
             ctx.shadowOffsetY = 0;
         }
 
-        function saveCanvas(size) {
+        function saveCanvas(size, buttonElement) {
             const canvas = document.getElementById(`canvas${size}`);
+
+            if (!(canvas instanceof HTMLCanvasElement)) {
+                alert('Canvas element not found.');
+                return;
+            }
+
+            const triggerButton = buttonElement instanceof HTMLButtonElement ? buttonElement : null;
 
             try {
                 // Try to export directly first
@@ -356,13 +394,15 @@
                         URL.revokeObjectURL(url);
 
                         // Show success message
-                        const originalText = event.target.textContent;
-                        event.target.textContent = 'Saved!';
-                        event.target.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
-                        setTimeout(() => {
-                            event.target.textContent = originalText;
-                            event.target.style.background = '';
-                        }, 2000);
+                        if (triggerButton) {
+                            const originalText = triggerButton.textContent;
+                            triggerButton.textContent = 'Saved!';
+                            triggerButton.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                            setTimeout(() => {
+                                triggerButton.textContent = originalText;
+                                triggerButton.style.background = '';
+                            }, 2000);
+                        }
                     } else {
                         throw new Error('Canvas export failed');
                     }
