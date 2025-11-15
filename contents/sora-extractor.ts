@@ -5,9 +5,11 @@ export const config: PlasmoCSConfig = {
   all_frames: false
 }
 
+type MediaType = "video" | "thumbnail"
+
 interface MediaItem {
   url: string
-  type: 'video' | 'thumbnail'
+  type: MediaType
   filename: string
 }
 
@@ -16,365 +18,397 @@ interface ExtractedMedia {
   thumbnails: MediaItem[]
 }
 
-// Extract URLs from JSON objects
-function extractUrlsFromJson(obj: any): { videos: string[], thumbnails: string[] } {
-  const videos: string[] = []
-  const thumbnails: string[] = []
-  
-  function traverse(obj: any) {
-    if (typeof obj === 'string') {
-      if (/\.(mp4|webm|mov|avi)$/i.test(obj)) {
-        videos.push(obj)
-      } else if (/\.(jpg|jpeg|png|webp)$/i.test(obj)) {
-        thumbnails.push(obj)
-      }
-    } else if (typeof obj === 'object' && obj !== null) {
-      for (const key in obj) {
-        traverse(obj[key])
-      }
-    }
+declare global {
+  interface Window {
+    __soraMediaCache?: { timestamp: number; data: ExtractedMedia }
   }
-  
-  traverse(obj)
-  return { videos, thumbnails }
 }
 
-// Validate URL format and prioritize signed URLs
-function isValidUrl(url: string): boolean {
+const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "avi", "mkv"] as const
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"] as const
+const ALL_EXTENSIONS = [...VIDEO_EXTENSIONS, ...IMAGE_EXTENSIONS]
+const VALID_PROTOCOLS = new Set(["http:", "https:"])
+const INVALID_PATH_SEGMENTS = [
+  "undefined",
+  "null",
+  "{{",
+  "}}",
+  "placeholder",
+  "example.com",
+  "localhost",
+  "127.0.0.1"
+]
+const MAX_JSON_LENGTH = 1_000_000
+const CACHE_TTL = 15_000
+const STORAGE_KEY_PREFIX = "sora-media::"
+const DIRECT_URL_PATTERN = new RegExp(
+  `https?:\\/\\/[^\\s<>"'{}|\\\\^\`\\[\\]]*\\.(${ALL_EXTENSIONS.join("|")})`,
+  "gi"
+)
+
+const getStorageKey = (): string => `${STORAGE_KEY_PREFIX}${window.location.href}`
+
+const isCacheFresh = (timestamp: number): boolean => Date.now() - timestamp < CACHE_TTL
+
+const getFreshCache = (): ExtractedMedia | null => {
+  const cached = window.__soraMediaCache
+  if (cached && isCacheFresh(cached.timestamp)) {
+    return cached.data
+  }
+  return null
+}
+
+const persistCache = (data: ExtractedMedia): void => {
+  const entry = { timestamp: Date.now(), data }
+  window.__soraMediaCache = entry
+
+  try {
+    if (chrome?.storage?.local) {
+      chrome.storage.local.set({ [getStorageKey()]: entry }, () => {
+        const runtimeError = chrome.runtime.lastError
+        if (runtimeError) {
+          console.debug("Failed to persist media cache:", runtimeError.message)
+        }
+      })
+    }
+  } catch (error) {
+    console.debug("Unable to persist media cache:", error)
+  }
+}
+
+const hydrateCacheFromStorage = (): void => {
+  try {
+    if (!chrome?.storage?.local) {
+      return
+    }
+
+    chrome.storage.local.get(getStorageKey(), (result) => {
+      const runtimeError = chrome.runtime.lastError
+      if (runtimeError) {
+        console.debug("Failed to hydrate media cache:", runtimeError.message)
+        return
+      }
+
+      const entry = result?.[getStorageKey()] as { timestamp?: number; data?: ExtractedMedia } | undefined
+      if (entry?.timestamp && entry.data && isCacheFresh(entry.timestamp)) {
+        window.__soraMediaCache = { timestamp: entry.timestamp, data: entry.data }
+      }
+    })
+  } catch (error) {
+    console.debug("Unable to hydrate media cache:", error)
+  }
+}
+
+hydrateCacheFromStorage()
+
+const videoExtensionPattern = new RegExp(`\.(${VIDEO_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
+const imageExtensionPattern = new RegExp(`\.(${IMAGE_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
+
+const hasMediaExtension = (pathname: string): boolean =>
+  ALL_EXTENSIONS.some((ext) => pathname.endsWith(`.${ext}`) || pathname.includes(`.${ext}?`))
+
+const isVideoUrl = (url: string): boolean => videoExtensionPattern.test(url)
+const isImageUrl = (url: string): boolean => imageExtensionPattern.test(url)
+
+const normaliseBasePath = (url: string): string => url.split(/[?#]/)[0]
+
+const extractUrlsFromJson = (obj: unknown): { videos: string[]; thumbnails: string[] } => {
+  const videos = new Set<string>()
+  const thumbnails = new Set<string>()
+  const visited = new WeakSet<object>()
+
+  const traverse = (value: unknown): void => {
+    if (typeof value === "string") {
+      if (isVideoUrl(value)) {
+        videos.add(value)
+      } else if (isImageUrl(value)) {
+        thumbnails.add(value)
+      }
+      return
+    }
+
+    if (!value || typeof value !== "object") {
+      return
+    }
+
+    if (visited.has(value as object)) {
+      return
+    }
+
+    visited.add(value as object)
+
+    if (Array.isArray(value)) {
+      value.forEach(traverse)
+      return
+    }
+
+    Object.values(value as Record<string, unknown>).forEach(traverse)
+  }
+
+  traverse(obj)
+
+  return {
+    videos: Array.from(videos),
+    thumbnails: Array.from(thumbnails)
+  }
+}
+
+const isValidUrl = (url: string): boolean => {
   try {
     const urlObj = new URL(url)
-    // Check if it's a valid HTTP/HTTPS URL
-    if (!['http:', 'https:'].includes(urlObj.protocol)) {
+    if (!VALID_PROTOCOLS.has(urlObj.protocol)) {
       return false
     }
-    
-    // Additional checks for common invalid patterns
+
     const pathname = urlObj.pathname.toLowerCase()
-    
-    // Skip URLs that are likely to be invalid
-    if (pathname.includes('undefined') || 
-        pathname.includes('null') || 
-        pathname.includes('{{') || 
-        pathname.includes('}}') ||
-        pathname.includes('placeholder') ||
-        pathname.includes('example.com') ||
-        pathname.includes('localhost') ||
-        pathname.includes('127.0.0.1')) {
+    if (!hasMediaExtension(pathname)) {
       return false
     }
-    
-    // Check for valid file extensions
-    const validVideoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv']
-    const validImageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
-    const hasValidExt = [...validVideoExts, ...validImageExts].some(ext => 
-      pathname.endsWith(ext) || pathname.includes(ext + '?')
-    )
-    
-    if (!hasValidExt) {
+
+    if (INVALID_PATH_SEGMENTS.some((segment) => pathname.includes(segment))) {
       return false
     }
-    
-    // For OpenAI/Sora videos, prioritize URLs with SAS signatures
-    if (urlObj.hostname.includes('openai.com') || urlObj.hostname.includes('videos.openai.com')) {
-      const searchParams = urlObj.searchParams
-      // Check for Azure SAS signature parameters
-      const hasSignature = searchParams.has('sig') && 
-                          searchParams.has('st') && 
-                          searchParams.has('se') &&
-                          searchParams.has('sv')
-      
-      if (hasSignature) {
-        // This is a signed URL with access permissions - prioritize it
-        return true
-      } else {
-        // This is likely an unsigned URL without access permissions - skip it
-        return false
-      }
+
+    if (urlObj.hostname.includes("openai.com") || urlObj.hostname.includes("videos.openai.com")) {
+      const { searchParams } = urlObj
+      const hasSignature =
+        searchParams.has("sig") && searchParams.has("st") && searchParams.has("se") && searchParams.has("sv")
+
+      return hasSignature
     }
-    
+
     return true
   } catch {
     return false
   }
 }
 
-// Check if URL has higher priority (signed URLs, etc.)
-function hasHigherPriority(url: string): boolean {
+const hasHigherPriority = (url: string): boolean => {
   try {
     const urlObj = new URL(url)
-    
-    // For OpenAI/Sora videos, signed URLs have higher priority
-    if (urlObj.hostname.includes('openai.com') || urlObj.hostname.includes('videos.openai.com')) {
-      const searchParams = urlObj.searchParams
-      return searchParams.has('sig') && searchParams.has('st') && searchParams.has('se')
+    if (urlObj.hostname.includes("openai.com") || urlObj.hostname.includes("videos.openai.com")) {
+      const params = urlObj.searchParams
+      return params.has("sig") && params.has("st") && params.has("se")
     }
-    
+
     return false
   } catch {
     return false
   }
 }
 
-// Convert relative URLs to absolute and validate
-function toAbsoluteUrl(url: string, baseUrl: string): string | null {
-  if (!url || typeof url !== 'string') {
+const toAbsoluteUrl = (url: string, baseUrl: string): string | null => {
+  if (typeof url !== "string" || !url.trim()) {
     return null
   }
-  
-  // Clean up the URL
-  url = url.trim()
-  
-  // Skip data URLs, blob URLs, and other non-http protocols
-  if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:') || url.startsWith('#')) {
+
+  const trimmed = url.trim()
+  if (/^(?:data|blob|javascript):/i.test(trimmed) || trimmed.startsWith("#")) {
     return null
   }
-  
-  if (url.startsWith('http')) {
-    return isValidUrl(url) ? url : null
+
+  const candidate = trimmed.startsWith("http") ? trimmed : (() => {
+    try {
+      return new URL(trimmed, baseUrl).href
+    } catch {
+      return null
+    }
+  })()
+
+  if (!candidate) {
+    return null
   }
-  
+
+  return isValidUrl(candidate) ? candidate : null
+}
+
+const sanitiseExtension = (extension: string, type: MediaType): string => {
+  const cleanExtension = extension.toLowerCase().replace(/[^a-z0-9]/g, "")
+  if (type === "video" && VIDEO_EXTENSIONS.includes(cleanExtension as typeof VIDEO_EXTENSIONS[number])) {
+    return cleanExtension
+  }
+  if (type === "thumbnail" && IMAGE_EXTENSIONS.includes(cleanExtension as typeof IMAGE_EXTENSIONS[number])) {
+    return cleanExtension
+  }
+  return type === "video" ? "mp4" : "jpg"
+}
+
+const generateFilename = (url: string, type: MediaType): string => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+
   try {
-    const absoluteUrl = new URL(url, baseUrl).href
-    return isValidUrl(absoluteUrl) ? absoluteUrl : null
+    const { pathname } = new URL(url)
+    const extension = pathname.split(".").pop() ?? ""
+    const safeExtension = sanitiseExtension(extension, type)
+    return `sora-${type}-${timestamp}.${safeExtension}`
   } catch {
-    return null
+    return `sora-${type}-${timestamp}.${type === "video" ? "mp4" : "jpg"}`
   }
 }
 
-// Generate filename from URL
-function generateFilename(url: string, type: 'video' | 'thumbnail'): string {
-  try {
-    const urlObj = new URL(url)
-    const pathname = urlObj.pathname
-    const extension = pathname.split('.').pop() || (type === 'video' ? 'mp4' : 'jpg')
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    return `sora-${type}-${timestamp}.${extension}`
-  } catch {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    return `sora-${type}-${timestamp}.${type === 'video' ? 'mp4' : 'jpg'}`
-  }
+const deduplicateMedia = (items: MediaItem[]): MediaItem[] => {
+  const unique = new Map<string, MediaItem>()
+
+  items.forEach((item) => {
+    const basePath = normaliseBasePath(item.url)
+    const existing = unique.get(basePath)
+
+    if (!existing) {
+      unique.set(basePath, item)
+      return
+    }
+
+    if (hasHigherPriority(item.url) && !hasHigherPriority(existing.url)) {
+      unique.set(basePath, item)
+    }
+  })
+
+  return Array.from(unique.values())
 }
 
-// Main extraction function
-function extractMediaFromPage(): ExtractedMedia {
+const registerMedia = (
+  collection: MediaItem[],
+  url: string | null | undefined,
+  type: MediaType,
+  baseUrl: string
+): void => {
+  if (!url) {
+    return
+  }
+
+  const absoluteUrl = toAbsoluteUrl(url, baseUrl)
+  if (!absoluteUrl) {
+    return
+  }
+
+  collection.push({
+    url: absoluteUrl,
+    type,
+    filename: generateFilename(absoluteUrl, type)
+  })
+}
+
+const extractMediaFromPage = (): ExtractedMedia => {
   const videos: MediaItem[] = []
   const thumbnails: MediaItem[] = []
   const baseUrl = window.location.origin
 
-  // Extract video elements
-  const videoElements = document.querySelectorAll('video')
-  videoElements.forEach(video => {
-    const src = video.getAttribute('src')
-    if (src) {
-      const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-      if (absoluteUrl) {
-        videos.push({
-          url: absoluteUrl,
-          type: 'video',
-          filename: generateFilename(absoluteUrl, 'video')
-        })
-      }
+  document.querySelectorAll("video").forEach((videoElement) => {
+    registerMedia(videos, videoElement.getAttribute("src"), "video", baseUrl)
+    videoElement.querySelectorAll("source").forEach((sourceElement) => {
+      registerMedia(videos, sourceElement.getAttribute("src"), "video", baseUrl)
+    })
+  })
+
+  document.querySelectorAll("img").forEach((imgElement) => {
+    const src = imgElement.getAttribute("src")
+    if (!src) {
+      return
+    }
+    const srcLower = src.toLowerCase()
+    const looksLikeThumbnail = ["thumb", "preview", "video", "cover", "poster", "sora"].some((keyword) =>
+      srcLower.includes(keyword)
+    )
+
+    if (!looksLikeThumbnail) {
+      return
     }
 
-    const sources = video.querySelectorAll('source')
-    sources.forEach(source => {
-      const src = source.getAttribute('src')
-      if (src) {
-        const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-        if (absoluteUrl) {
-          videos.push({
-            url: absoluteUrl,
-            type: 'video',
-            filename: generateFilename(absoluteUrl, 'video')
-          })
+    registerMedia(thumbnails, src, "thumbnail", baseUrl)
+  })
+
+  const scriptPatterns = [
+    /window\.__INITIAL_STATE__\s*=\s*({.*?});/s,
+    /window\.__STATE__\s*=\s*({.*?});/s,
+    /__NEXT_DATA__"\s*content="([^"]+)"/,
+    /"video"\s*:\s*{[^}]*"url"\s*:\s*"([^"]+)"/,
+    /"thumbnail"\s*:\s*"([^"]+)"/,
+    new RegExp(`"src"\\s*:\\s*"([^\"]*\\.(${ALL_EXTENSIONS.join("|")})[^\"]*)"`, "i"),
+    new RegExp(`"url"\\s*:\\s*"([^\"]*\\.(${ALL_EXTENSIONS.join("|")})[^\"]*)"`, "i")
+  ]
+
+  document.querySelectorAll("script").forEach((scriptElement) => {
+    const scriptContent = scriptElement.textContent
+    if (!scriptContent) {
+      return
+    }
+
+    scriptPatterns.forEach((pattern) => {
+      const matches = scriptContent.match(pattern)
+      if (!matches || !matches[1]) {
+        return
+      }
+
+      const matchContent = matches[1]
+      try {
+        if (matchContent.startsWith("{") && matchContent.length <= MAX_JSON_LENGTH) {
+          const parsed = JSON.parse(matchContent)
+          const urls = extractUrlsFromJson(parsed)
+          urls.videos.forEach((videoUrl) => registerMedia(videos, videoUrl, "video", baseUrl))
+          urls.thumbnails.forEach((thumbnailUrl) => registerMedia(thumbnails, thumbnailUrl, "thumbnail", baseUrl))
+        } else if (isVideoUrl(matchContent)) {
+          registerMedia(videos, matchContent, "video", baseUrl)
+        } else if (isImageUrl(matchContent)) {
+          registerMedia(thumbnails, matchContent, "thumbnail", baseUrl)
         }
+      } catch {
+        // Ignore malformed JSON and continue scanning other patterns
       }
     })
   })
 
-  // Extract image elements that might be thumbnails
-  const imgElements = document.querySelectorAll('img')
-  imgElements.forEach(img => {
-    const src = img.getAttribute('src')
-    if (src) {
-      const srcLower = src.toLowerCase()
-      // Filter for likely thumbnails
-      if (['thumb', 'preview', 'video', 'cover', 'poster', 'sora'].some(keyword => 
-        srcLower.includes(keyword))) {
-        const absoluteUrl = toAbsoluteUrl(src, baseUrl)
-        if (absoluteUrl) {
-          thumbnails.push({
-            url: absoluteUrl,
-            type: 'thumbnail',
-            filename: generateFilename(absoluteUrl, 'thumbnail')
-          })
-        }
+  const bodyText = document.body?.textContent ?? ""
+  if (bodyText) {
+    const limitedText = bodyText.length > 500_000 ? bodyText.slice(0, 500_000) : bodyText
+    const directUrls = limitedText.match(DIRECT_URL_PATTERN) ?? []
+    directUrls.forEach((rawUrl) => {
+      if (isVideoUrl(rawUrl)) {
+        registerMedia(videos, rawUrl, "video", baseUrl)
+      } else if (isImageUrl(rawUrl)) {
+        registerMedia(thumbnails, rawUrl, "thumbnail", baseUrl)
       }
-    }
-  })
-
-  // Extract from scripts
-  const scripts = document.querySelectorAll('script')
-  scripts.forEach(script => {
-    if (script.textContent) {
-      const scriptContent = script.textContent
-      
-      // JSON patterns to look for
-      const jsonPatterns = [
-        /window\.__INITIAL_STATE__\s*=\s*({.*?});/s,
-        /window\.__STATE__\s*=\s*({.*?});/s,
-        /__NEXT_DATA__"\s*content="([^"]+)"/,
-        /"video"\s*:\s*{[^}]*"url"\s*:\s*"([^"]+)"/,
-        /"thumbnail"\s*:\s*"([^"]+)"/,
-        /"src"\s*:\s*"([^"]*\.(?:mp4|webm|mov|avi|jpg|jpeg|png)[^"]*)"/,
-        /"url"\s*:\s*"([^"]*\.(?:mp4|webm|mov|avi|jpg|jpeg|png)[^"]*)"/
-      ]
-
-      jsonPatterns.forEach(pattern => {
-        const matches = scriptContent.match(pattern)
-        if (matches) {
-          try {
-            if (matches[1] && matches[1].startsWith('{')) {
-              // Handle JSON objects
-              const jsonObj = JSON.parse(matches[1])
-              const urls = extractUrlsFromJson(jsonObj)
-              urls.videos.forEach(url => {
-                const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                if (absoluteUrl) {
-                  videos.push({
-                    url: absoluteUrl,
-                    type: 'video',
-                    filename: generateFilename(absoluteUrl, 'video')
-                  })
-                }
-              })
-              urls.thumbnails.forEach(url => {
-                const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                if (absoluteUrl) {
-                  thumbnails.push({
-                    url: absoluteUrl,
-                    type: 'thumbnail',
-                    filename: generateFilename(absoluteUrl, 'thumbnail')
-                  })
-                }
-              })
-            } else if (matches[1]) {
-              // Handle direct URL matches
-              const url = matches[1]
-              if (/\.(mp4|webm|mov|avi)$/i.test(url)) {
-                const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                if (absoluteUrl) {
-                  videos.push({
-                    url: absoluteUrl,
-                    type: 'video',
-                    filename: generateFilename(absoluteUrl, 'video')
-                  })
-                }
-              } else if (/\.(jpg|jpeg|png|webp)$/i.test(url)) {
-                const absoluteUrl = toAbsoluteUrl(url, baseUrl)
-                if (absoluteUrl) {
-                  thumbnails.push({
-                    url: absoluteUrl,
-                    type: 'thumbnail',
-                    filename: generateFilename(absoluteUrl, 'thumbnail')
-                  })
-                }
-              }
-            }
-          } catch (e) {
-            // Ignore JSON parsing errors
-          }
-        }
-      })
-    }
-  })
-
-  // Search for direct URLs in page content
-  const pageText = document.body.textContent || ''
-  const urlPattern = /https?:\/\/[^\s<>"'{}|\\^`\[\]]*\.(?:mp4|webm|mov|avi|jpg|jpeg|png|webp)/gi
-  const directUrls = pageText.match(urlPattern) || []
-
-  directUrls.forEach(url => {
-    if (isValidUrl(url)) {
-      if (/\.(mp4|webm|mov|avi)$/i.test(url)) {
-        videos.push({
-          url: url,
-          type: 'video',
-          filename: generateFilename(url, 'video')
-        })
-      } else if (/\.(jpg|jpeg|png|webp)$/i.test(url)) {
-        thumbnails.push({
-          url: url,
-          type: 'thumbnail',
-          filename: generateFilename(url, 'thumbnail')
-        })
-      }
-    }
-  })
-
-  // Remove duplicates while prioritizing signed URLs
-  const uniqueVideos = videos.reduce((acc: MediaItem[], current) => {
-    // Find existing item with same base path (without query params)
-    const currentBasePath = current.url.split('?')[0]
-    const existingIndex = acc.findIndex(item => item.url.split('?')[0] === currentBasePath)
-    
-    if (existingIndex === -1) {
-      // No existing item, add current
-      acc.push(current)
-    } else {
-      // Compare priority - keep the one with higher priority (signed URL)
-      const existing = acc[existingIndex]
-      if (hasHigherPriority(current.url) && !hasHigherPriority(existing.url)) {
-        acc[existingIndex] = current
-      }
-    }
-    
-    return acc
-  }, [])
-  
-  const uniqueThumbnails = thumbnails.reduce((acc: MediaItem[], current) => {
-    // Find existing item with same base path (without query params)
-    const currentBasePath = current.url.split('?')[0]
-    const existingIndex = acc.findIndex(item => item.url.split('?')[0] === currentBasePath)
-    
-    if (existingIndex === -1) {
-      // No existing item, add current
-      acc.push(current)
-    } else {
-      // Compare priority - keep the one with higher priority (signed URL)
-      const existing = acc[existingIndex]
-      if (hasHigherPriority(current.url) && !hasHigherPriority(existing.url)) {
-        acc[existingIndex] = current
-      }
-    }
-    
-    return acc
-  }, [])
-
-  return {
-    videos: uniqueVideos,
-    thumbnails: uniqueThumbnails
+    })
   }
+
+  const result = {
+    videos: deduplicateMedia(videos),
+    thumbnails: deduplicateMedia(thumbnails)
+  }
+
+  persistCache(result)
+
+  return result
 }
 
-// Listen for messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extractMedia') {
-    try {
-      const extractedMedia = extractMediaFromPage()
-      sendResponse({ success: true, data: extractedMedia })
-    } catch (error) {
-      sendResponse({ success: false, error: error.message })
-    }
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (!request || request.action !== "extractMedia") {
+    return false
   }
-  return true // Keep message channel open for async response
+
+  const cached = getFreshCache()
+  if (cached) {
+    sendResponse({ success: true, data: cached })
+    return false
+  }
+
+  try {
+    const extractedMedia = extractMediaFromPage()
+    sendResponse({ success: true, data: extractedMedia })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown extraction error"
+    sendResponse({ success: false, error: message })
+  }
+
+  return false
 })
 
-// Auto-extract when page loads
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    const extractedMedia = extractMediaFromPage()
-    // Store in sessionStorage for popup to access
-    sessionStorage.setItem('sora-extracted-media', JSON.stringify(extractedMedia))
-  }, 2000) // Wait 2 seconds for dynamic content to load
+window.addEventListener("load", () => {
+  window.setTimeout(() => {
+    try {
+      extractMediaFromPage()
+    } catch (error) {
+      console.warn("Failed to cache extracted media:", error)
+    }
+  }, 2000)
 })
+
