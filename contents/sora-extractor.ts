@@ -1,8 +1,23 @@
 import type { PlasmoCSConfig } from "plasmo"
+import { isValidMediaUrl, hasOpenAISignature } from "~utils/url-validator"
+import { setStorageData, getStorageData } from "~utils/chrome-api"
+import {
+  VIDEO_EXTENSIONS,
+  IMAGE_EXTENSIONS,
+  ALL_MEDIA_EXTENSIONS,
+  CACHE_TTL_MS,
+  STORAGE_KEY_PREFIX,
+  MAX_JSON_LENGTH,
+  MAX_BODY_TEXT_LENGTH,
+  DIRECT_URL_PATTERN,
+  PAGE_LOAD_DELAY_MS,
+  type VideoExtension,
+  type ImageExtension,
+} from "~utils/constants"
 
 export const config: PlasmoCSConfig = {
   matches: ["https://sora.chatgpt.com/*"],
-  all_frames: false
+  all_frames: false,
 }
 
 type MediaType = "video" | "thumbnail"
@@ -18,37 +33,20 @@ interface ExtractedMedia {
   thumbnails: MediaItem[]
 }
 
+interface CacheEntry {
+  timestamp: number
+  data: ExtractedMedia
+}
+
 declare global {
   interface Window {
-    __soraMediaCache?: { timestamp: number; data: ExtractedMedia }
+    __soraMediaCache?: CacheEntry
   }
 }
 
-const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "avi", "mkv"] as const
-const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"] as const
-const ALL_EXTENSIONS = [...VIDEO_EXTENSIONS, ...IMAGE_EXTENSIONS]
-const VALID_PROTOCOLS = new Set(["http:", "https:"])
-const INVALID_PATH_SEGMENTS = [
-  "undefined",
-  "null",
-  "{{",
-  "}}",
-  "placeholder",
-  "example.com",
-  "localhost",
-  "127.0.0.1"
-]
-const MAX_JSON_LENGTH = 1_000_000
-const CACHE_TTL = 15_000
-const STORAGE_KEY_PREFIX = "sora-media::"
-const DIRECT_URL_PATTERN = new RegExp(
-  `https?:\\/\\/[^\\s<>"'{}|\\\\^\`\\[\\]]*\\.(${ALL_EXTENSIONS.join("|")})`,
-  "gi"
-)
-
 const getStorageKey = (): string => `${STORAGE_KEY_PREFIX}${window.location.href}`
 
-const isCacheFresh = (timestamp: number): boolean => Date.now() - timestamp < CACHE_TTL
+const isCacheFresh = (timestamp: number): boolean => Date.now() - timestamp < CACHE_TTL_MS
 
 const getFreshCache = (): ExtractedMedia | null => {
   const cached = window.__soraMediaCache
@@ -58,60 +56,43 @@ const getFreshCache = (): ExtractedMedia | null => {
   return null
 }
 
-const persistCache = (data: ExtractedMedia): void => {
-  const entry = { timestamp: Date.now(), data }
+const persistCache = async (data: ExtractedMedia): Promise<void> => {
+  const entry: CacheEntry = { timestamp: Date.now(), data }
   window.__soraMediaCache = entry
 
   try {
-    if (chrome?.storage?.local) {
-      chrome.storage.local.set({ [getStorageKey()]: entry }, () => {
-        const runtimeError = chrome.runtime.lastError
-        if (runtimeError) {
-          console.debug("Failed to persist media cache:", runtimeError.message)
-        }
-      })
-    }
+    await setStorageData(getStorageKey(), entry)
   } catch (error) {
     console.debug("Unable to persist media cache:", error)
   }
 }
 
-const hydrateCacheFromStorage = (): void => {
+const hydrateCacheFromStorage = async (): Promise<void> => {
   try {
-    if (!chrome?.storage?.local) {
-      return
+    const entry = await getStorageData<CacheEntry>(getStorageKey())
+    if (entry?.timestamp && entry.data && isCacheFresh(entry.timestamp)) {
+      window.__soraMediaCache = entry
     }
-
-    chrome.storage.local.get(getStorageKey(), (result) => {
-      const runtimeError = chrome.runtime.lastError
-      if (runtimeError) {
-        console.debug("Failed to hydrate media cache:", runtimeError.message)
-        return
-      }
-
-      const entry = result?.[getStorageKey()] as { timestamp?: number; data?: ExtractedMedia } | undefined
-      if (entry?.timestamp && entry.data && isCacheFresh(entry.timestamp)) {
-        window.__soraMediaCache = { timestamp: entry.timestamp, data: entry.data }
-      }
-    })
   } catch (error) {
     console.debug("Unable to hydrate media cache:", error)
   }
 }
 
-hydrateCacheFromStorage()
+// Initialize cache hydration
+void hydrateCacheFromStorage()
 
-const videoExtensionPattern = new RegExp(`\.(${VIDEO_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
-const imageExtensionPattern = new RegExp(`\.(${IMAGE_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
-
-const hasMediaExtension = (pathname: string): boolean =>
-  ALL_EXTENSIONS.some((ext) => pathname.endsWith(`.${ext}`) || pathname.includes(`.${ext}?`))
+const videoExtensionPattern = new RegExp(`\\.(${VIDEO_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
+const imageExtensionPattern = new RegExp(`\\.(${IMAGE_EXTENSIONS.join("|")})(?:$|[?&])`, "i")
 
 const isVideoUrl = (url: string): boolean => videoExtensionPattern.test(url)
 const isImageUrl = (url: string): boolean => imageExtensionPattern.test(url)
 
 const normaliseBasePath = (url: string): string => url.split(/[?#]/)[0]
 
+/**
+ * Extract media URLs from JSON object recursively
+ * Uses WeakSet to prevent infinite loops from circular references
+ */
 const extractUrlsFromJson = (obj: unknown): { videos: string[]; thumbnails: string[] } => {
   const videos = new Set<string>()
   const thumbnails = new Set<string>()
@@ -119,9 +100,9 @@ const extractUrlsFromJson = (obj: unknown): { videos: string[]; thumbnails: stri
 
   const traverse = (value: unknown): void => {
     if (typeof value === "string") {
-      if (isVideoUrl(value)) {
+      if (isVideoUrl(value) && isValidMediaUrl(value, VIDEO_EXTENSIONS)) {
         videos.add(value)
-      } else if (isImageUrl(value)) {
+      } else if (isImageUrl(value) && isValidMediaUrl(value, IMAGE_EXTENSIONS)) {
         thumbnails.add(value)
       }
       return
@@ -149,90 +130,55 @@ const extractUrlsFromJson = (obj: unknown): { videos: string[]; thumbnails: stri
 
   return {
     videos: Array.from(videos),
-    thumbnails: Array.from(thumbnails)
+    thumbnails: Array.from(thumbnails),
   }
 }
 
-const isValidUrl = (url: string): boolean => {
-  try {
-    const urlObj = new URL(url)
-    if (!VALID_PROTOCOLS.has(urlObj.protocol)) {
-      return false
-    }
-
-    const pathname = urlObj.pathname.toLowerCase()
-    if (!hasMediaExtension(pathname)) {
-      return false
-    }
-
-    if (INVALID_PATH_SEGMENTS.some((segment) => pathname.includes(segment))) {
-      return false
-    }
-
-    if (urlObj.hostname.includes("openai.com") || urlObj.hostname.includes("videos.openai.com")) {
-      const { searchParams } = urlObj
-      const hasSignature =
-        searchParams.has("sig") && searchParams.has("st") && searchParams.has("se") && searchParams.has("sv")
-
-      return hasSignature
-    }
-
-    return true
-  } catch {
-    return false
-  }
-}
-
-const hasHigherPriority = (url: string): boolean => {
-  try {
-    const urlObj = new URL(url)
-    if (urlObj.hostname.includes("openai.com") || urlObj.hostname.includes("videos.openai.com")) {
-      const params = urlObj.searchParams
-      return params.has("sig") && params.has("st") && params.has("se")
-    }
-
-    return false
-  } catch {
-    return false
-  }
-}
-
+/**
+ * Convert relative URL to absolute URL with validation
+ */
 const toAbsoluteUrl = (url: string, baseUrl: string): string | null => {
   if (typeof url !== "string" || !url.trim()) {
     return null
   }
 
   const trimmed = url.trim()
+
+  // Block dangerous protocols
   if (/^(?:data|blob|javascript):/i.test(trimmed) || trimmed.startsWith("#")) {
     return null
   }
 
-  const candidate = trimmed.startsWith("http") ? trimmed : (() => {
-    try {
-      return new URL(trimmed, baseUrl).href
-    } catch {
-      return null
-    }
-  })()
+  const candidate = trimmed.startsWith("http")
+    ? trimmed
+    : (() => {
+        try {
+          return new URL(trimmed, baseUrl).href
+        } catch {
+          return null
+        }
+      })()
 
-  if (!candidate) {
-    return null
-  }
-
-  return isValidUrl(candidate) ? candidate : null
+  return candidate
 }
 
+/**
+ * Sanitize file extension to prevent injection
+ */
 const sanitiseExtension = (extension: string, type: MediaType): string => {
   const cleanExtension = extension.toLowerCase().replace(/[^a-z0-9]/g, "")
-  if (type === "video" && VIDEO_EXTENSIONS.includes(cleanExtension as typeof VIDEO_EXTENSIONS[number])) {
+  if (type === "video" && VIDEO_EXTENSIONS.includes(cleanExtension as VideoExtension)) {
     return cleanExtension
   }
-  if (type === "thumbnail" && IMAGE_EXTENSIONS.includes(cleanExtension as typeof IMAGE_EXTENSIONS[number])) {
+  if (type === "thumbnail" && IMAGE_EXTENSIONS.includes(cleanExtension as ImageExtension)) {
     return cleanExtension
   }
   return type === "video" ? "mp4" : "jpg"
 }
 
+/**
+ * Generate safe filename with timestamp
+ */
 const generateFilename = (url: string, type: MediaType): string => {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
 
@@ -246,6 +192,9 @@ const generateFilename = (url: string, type: MediaType): string => {
   }
 }
 
+/**
+ * Deduplicate media items, prioritizing signed URLs
+ */
 const deduplicateMedia = (items: MediaItem[]): MediaItem[] => {
   const unique = new Map<string, MediaItem>()
 
@@ -258,7 +207,8 @@ const deduplicateMedia = (items: MediaItem[]): MediaItem[] => {
       return
     }
 
-    if (hasHigherPriority(item.url) && !hasHigherPriority(existing.url)) {
+    // Prefer URLs with OpenAI signature
+    if (hasOpenAISignature(item.url) && !hasOpenAISignature(existing.url)) {
       unique.set(basePath, item)
     }
   })
@@ -266,6 +216,9 @@ const deduplicateMedia = (items: MediaItem[]): MediaItem[] => {
   return Array.from(unique.values())
 }
 
+/**
+ * Register media item with validation
+ */
 const registerMedia = (
   collection: MediaItem[],
   url: string | null | undefined,
@@ -281,18 +234,31 @@ const registerMedia = (
     return
   }
 
+  // Determine allowed extensions based on media type
+  const allowedExtensions = type === "video" ? VIDEO_EXTENSIONS : IMAGE_EXTENSIONS
+
+  // Validate URL with comprehensive security checks
+  if (!isValidMediaUrl(absoluteUrl, allowedExtensions)) {
+    return
+  }
+
   collection.push({
     url: absoluteUrl,
     type,
-    filename: generateFilename(absoluteUrl, type)
+    filename: generateFilename(absoluteUrl, type),
   })
 }
 
+/**
+ * Extract media from page DOM and scripts
+ * Uses multiple extraction methods for comprehensive coverage
+ */
 const extractMediaFromPage = (): ExtractedMedia => {
   const videos: MediaItem[] = []
   const thumbnails: MediaItem[] = []
   const baseUrl = window.location.origin
 
+  // Method 1: Extract from <video> elements
   document.querySelectorAll("video").forEach((videoElement) => {
     registerMedia(videos, videoElement.getAttribute("src"), "video", baseUrl)
     videoElement.querySelectorAll("source").forEach((sourceElement) => {
@@ -300,6 +266,7 @@ const extractMediaFromPage = (): ExtractedMedia => {
     })
   })
 
+  // Method 2: Extract from <img> elements (with thumbnail heuristics)
   document.querySelectorAll("img").forEach((imgElement) => {
     const src = imgElement.getAttribute("src")
     if (!src) {
@@ -317,14 +284,15 @@ const extractMediaFromPage = (): ExtractedMedia => {
     registerMedia(thumbnails, src, "thumbnail", baseUrl)
   })
 
+  // Method 3: Extract from <script> tags with JSON data
   const scriptPatterns = [
     /window\.__INITIAL_STATE__\s*=\s*({.*?});/s,
     /window\.__STATE__\s*=\s*({.*?});/s,
     /__NEXT_DATA__"\s*content="([^"]+)"/,
     /"video"\s*:\s*{[^}]*"url"\s*:\s*"([^"]+)"/,
     /"thumbnail"\s*:\s*"([^"]+)"/,
-    new RegExp(`"src"\\s*:\\s*"([^\"]*\\.(${ALL_EXTENSIONS.join("|")})[^\"]*)"`, "i"),
-    new RegExp(`"url"\\s*:\\s*"([^\"]*\\.(${ALL_EXTENSIONS.join("|")})[^\"]*)"`, "i")
+    new RegExp(`"src"\\s*:\\s*"([^\"]*\\.(${ALL_MEDIA_EXTENSIONS.join("|")})[^\"]*)"`, "i"),
+    new RegExp(`"url"\\s*:\\s*"([^\"]*\\.(${ALL_MEDIA_EXTENSIONS.join("|")})[^\"]*)"`, "i"),
   ]
 
   document.querySelectorAll("script").forEach((scriptElement) => {
@@ -351,15 +319,17 @@ const extractMediaFromPage = (): ExtractedMedia => {
         } else if (isImageUrl(matchContent)) {
           registerMedia(thumbnails, matchContent, "thumbnail", baseUrl)
         }
-      } catch {
+      } catch (err) {
         // Ignore malformed JSON and continue scanning other patterns
+        console.debug("Failed to parse JSON from script:", err)
       }
     })
   })
 
+  // Method 4: Extract from page body text (limited for performance)
   const bodyText = document.body?.textContent ?? ""
   if (bodyText) {
-    const limitedText = bodyText.length > 500_000 ? bodyText.slice(0, 500_000) : bodyText
+    const limitedText = bodyText.length > MAX_BODY_TEXT_LENGTH ? bodyText.slice(0, MAX_BODY_TEXT_LENGTH) : bodyText
     const directUrls = limitedText.match(DIRECT_URL_PATTERN) ?? []
     directUrls.forEach((rawUrl) => {
       if (isVideoUrl(rawUrl)) {
@@ -372,14 +342,16 @@ const extractMediaFromPage = (): ExtractedMedia => {
 
   const result = {
     videos: deduplicateMedia(videos),
-    thumbnails: deduplicateMedia(thumbnails)
+    thumbnails: deduplicateMedia(thumbnails),
   }
 
-  persistCache(result)
+  // Persist to cache asynchronously
+  void persistCache(result)
 
   return result
 }
 
+// Message listener for popup communication
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (!request || request.action !== "extractMedia") {
     return false
@@ -396,12 +368,14 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     sendResponse({ success: true, data: extractedMedia })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown extraction error"
+    console.error("Media extraction failed:", error)
     sendResponse({ success: false, error: message })
   }
 
   return false
 })
 
+// Auto-extract media after page load
 window.addEventListener("load", () => {
   window.setTimeout(() => {
     try {
@@ -409,6 +383,5 @@ window.addEventListener("load", () => {
     } catch (error) {
       console.warn("Failed to cache extracted media:", error)
     }
-  }, 2000)
+  }, PAGE_LOAD_DELAY_MS)
 })
-
