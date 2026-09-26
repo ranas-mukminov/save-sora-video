@@ -37,5 +37,29 @@
     "content_security_policy": {
       "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self';"
     }
+  },
+  "pnpm": {
+    "overrides": {
+      "@babel/core": "7.29.6",
+      "@parcel/reporter-dev-server": "2.16.4",
+      "baseline-browser-mapping": "2.11.0",
+      "brace-expansion": "2.1.4",
+      "browserslist": "4.28.7",
+      "content-security-policy-parser": "0.6.0",
+      "fflate": "0.8.3",
+      "immutable": "5.1.8",
+      "js-yaml": "4.3.2",
+      "minimatch": "9.0.7",
+      "nanoid": "3.3.18",
+      "picomatch": "2.3.2",
+      "postcss": "8.5.23",
+      "rollup": "3.30.0",
+      "sharp": "0.35.4",
+      "svgo": "2.8.4",
+      "svelte": "5.57.1",
+      "tsup": "8.5.1",
+      "yaml@1": "1.10.3",
+      "yaml@2": "2.8.3"
+    }
   }
 }
